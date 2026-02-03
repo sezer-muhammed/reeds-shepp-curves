@@ -4,7 +4,7 @@ from reeds_shepp import (
     PathElement, 
     Steering, 
     Gear, 
-    ReedsSheppCurve, 
+    ReedsSheppCurve,
     ReedsSheppCurveWaypoint,
     ReedsSheppCurvePath
 )
@@ -35,7 +35,7 @@ def test_timeflip():
     timeflipped = timeflip(path)
     assert timeflipped[0].gear == Gear.BACKWARD
     assert timeflipped[1].gear == Gear.FORWARD
-    assert path[0].gear == Gear.FORWARD  # Immvutability check
+    assert path[0].gear == Gear.FORWARD  # Immutability check
 
 def test_reflect():
     path = [PathElement.create(1, s, Gear.FORWARD) for s in (Steering.LEFT, Steering.STRAIGHT, Steering.RIGHT)]
@@ -57,12 +57,25 @@ def test_planner_interface():
     ]
     paths = planner.plan(waypoints)
     
-    assert len(paths) == 1
+    assert len(paths) > 0
     assert isinstance(paths[0], ReedsSheppCurvePath)
+    # The shortest path for (0,0,0) to (1,0,0) should be STRAIGHT FORWARD
     assert paths[0].elements == [PathElement.create(1.0, Steering.STRAIGHT, Gear.FORWARD)]
     assert math.isclose(paths[0].total_length, 1.0)
-    assert paths[0].start_waypoint == waypoints[0]
-    assert paths[0].end_waypoint == waypoints[1]
+    assert paths[0].waypoints == waypoints
+
+def test_planner_sorting():
+    planner = ReedsSheppCurve()
+    waypoints = [
+        ReedsSheppCurveWaypoint(0, 0, 0),
+        ReedsSheppCurveWaypoint(2, 2, 90)
+    ]
+    paths = planner.plan(waypoints)
+    
+    assert len(paths) > 1
+    # Check if they are sorted by length
+    for i in range(len(paths) - 1):
+        assert paths[i].total_length <= paths[i+1].total_length
 
 def test_planner_multiple_waypoints():
     planner = ReedsSheppCurve()
@@ -73,6 +86,8 @@ def test_planner_multiple_waypoints():
     ]
     paths = planner.plan(waypoints)
     
-    assert len(paths) == 2
-    assert paths[0].total_length > 0
-    assert paths[1].total_length > 0
+    # Each path in 'paths' should be a full path from W0 to W2
+    assert len(paths) > 0
+    assert math.isclose(paths[0].total_length, 2.0)
+    assert len(paths[0].elements) >= 2
+    assert paths[0].waypoints == waypoints
