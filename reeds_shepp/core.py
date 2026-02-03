@@ -10,9 +10,10 @@ some formulas have been adapted (cf http://msl.cs.uiuc.edu/~lavalle/cs326a/rs.c)
 
 import math
 import itertools
+import heapq
 from enum import Enum
-from dataclasses import dataclass, replace
-from typing import List
+from dataclasses import dataclass, replace, field
+from typing import List, Optional, Tuple
 from .utils import M, R, change_of_basis, deg2rad
 
 
@@ -65,52 +66,133 @@ class ReedsSheppCurveWaypoint:
 class ReedsSheppCurvePath:
     elements: List[PathElement]
     waypoints: List[ReedsSheppCurveWaypoint]
+    _total_length: Optional[float] = field(default=None, init=False, repr=False, compare=False)
 
     @property
     def total_length(self) -> float:
-        return sum(e.param for e in self.elements)
+        if self._total_length is None:
+            self._total_length = sum(e.param for e in self.elements)
+        return self._total_length
 
 
 class ReedsSheppCurve:
-    def plan(self, waypoints: List[ReedsSheppCurveWaypoint]) -> List[ReedsSheppCurvePath]:
+    def plan(
+        self,
+        waypoints: List[ReedsSheppCurveWaypoint],
+        *,
+        max_paths: Optional[int] = 10,
+        max_paths_per_segment: Optional[int] = None,
+    ) -> List[ReedsSheppCurvePath]:
         """
         Return all possible paths between the waypoints, sorted from shortest to longest.
         Each path visits all waypoints in the provided order.
+        By default, returns up to 10 paths for better scaling. Use max_paths=None to return all.
+        Optional parameters can further limit the number of paths returned.
         """
         if not waypoints:
             return []
         if len(waypoints) == 1:
             return [ReedsSheppCurvePath([], waypoints)]
+        if max_paths is not None and max_paths <= 0:
+            return []
+        if max_paths_per_segment is not None and max_paths_per_segment <= 0:
+            return []
 
         # Get all path variants for each segment
-        segments_variants = []
+        segments_variants: List[List[Tuple[List[PathElement], float]]] = []
         for i in range(len(waypoints) - 1):
             start = waypoints[i]
             end = waypoints[i+1]
             start_tuple = (start.x, start.y, start.theta)
             end_tuple = (end.x, end.y, end.theta)
             variants = get_all_paths(start_tuple, end_tuple)
-            segments_variants.append(variants)
+            if not variants:
+                return []
+            variants_with_len = [(v, path_length(v)) for v in variants]
+            variants_with_len.sort(key=lambda t: t[1])
+            if max_paths_per_segment is not None:
+                variants_with_len = variants_with_len[:max_paths_per_segment]
+            segments_variants.append(variants_with_len)
 
-        # Generate all combinations of segments
-        all_full_paths = []
-        # combination will be a tuple of lists of PathElements
-        for combination in itertools.product(*segments_variants):
+        if max_paths == 1:
             full_elements = []
-            for segment in combination:
-                full_elements.extend(segment)
-            all_full_paths.append(ReedsSheppCurvePath(full_elements, waypoints))
+            total_length = 0.0
+            for variants in segments_variants:
+                best_elements, best_length = variants[0]
+                full_elements.extend(best_elements)
+                total_length += best_length
+            path = ReedsSheppCurvePath(full_elements, waypoints)
+            path._total_length = total_length
+            return [path]
 
-        # Sort by length
-        all_full_paths.sort(key=lambda p: p.total_length)
-        return all_full_paths
+        if max_paths is None:
+            # Generate all combinations of segments
+            full_paths_with_len: List[Tuple[float, ReedsSheppCurvePath]] = []
+            # combination will be a tuple of lists of PathElements and their lengths
+            for combination in itertools.product(*segments_variants):
+                total_len = sum(seg_len for _, seg_len in combination)
+                full_elements = [e for segment, _ in combination for e in segment]
+                path = ReedsSheppCurvePath(full_elements, waypoints)
+                path._total_length = total_len
+                full_paths_with_len.append((total_len, path))
+
+            # Sort by length
+            full_paths_with_len.sort(key=lambda t: t[0])
+            return [path for _, path in full_paths_with_len]
+
+        # Compute the k shortest combinations without expanding all products.
+        k = max_paths
+        partials = segments_variants[0]
+        for segment in segments_variants[1:]:
+            partials = _combine_k_shortest(partials, segment, k)
+            if not partials:
+                return []
+        paths = []
+        for elements, total_len in partials:
+            path = ReedsSheppCurvePath(elements, waypoints)
+            path._total_length = total_len
+            paths.append(path)
+        return paths
+
+
+def _combine_k_shortest(
+    left: List[Tuple[List[PathElement], float]],
+    right: List[Tuple[List[PathElement], float]],
+    k: int,
+) -> List[Tuple[List[PathElement], float]]:
+    """
+    Combine two sorted (by length) lists of path variants and return the k shortest.
+    Path lengths are non-negative, so keeping only the k shortest partials is safe.
+    """
+    if not left or not right:
+        return []
+    max_k = min(k, len(left) * len(right))
+    heap: List[Tuple[float, int, int]] = []
+    visited = set()
+
+    heapq.heappush(heap, (left[0][1] + right[0][1], 0, 0))
+    visited.add((0, 0))
+
+    result: List[Tuple[List[PathElement], float]] = []
+    while heap and len(result) < max_k:
+        total, i, j = heapq.heappop(heap)
+        result.append((left[i][0] + right[j][0], total))
+
+        if i + 1 < len(left) and (i + 1, j) not in visited:
+            heapq.heappush(heap, (left[i + 1][1] + right[j][1], i + 1, j))
+            visited.add((i + 1, j))
+        if j + 1 < len(right) and (i, j + 1) not in visited:
+            heapq.heappush(heap, (left[i][1] + right[j + 1][1], i, j + 1))
+            visited.add((i, j + 1))
+
+    return result
 
 
 def path_length(path):
     """
     this one's obvious
     """
-    return sum([e.param for e in path])
+    return sum(e.param for e in path)
 
 
 def get_optimal_path(start, end):
@@ -126,26 +208,26 @@ def get_all_paths(start, end):
     Return a list of all the paths from start to end generated by the
     12 functions and their variants
     """
-    path_fns = [path1, path2, path3, path4, path5, path6,
-                path7, path8, path9, path10, path11, path12]
     paths = []
 
     # get coordinates of end in the set of axis where start is (0,0,0)
     x, y, theta = change_of_basis(start, end)
 
-    for get_path in path_fns:
+    for get_path in PATH_FUNCTIONS:
         # get the four variants for each path type, cf article
-        paths.append(get_path(x, y, theta))
-        paths.append(timeflip(get_path(-x, y, -theta)))
-        paths.append(reflect(get_path(x, -y, -theta)))
-        paths.append(reflect(timeflip(get_path(-x, -y, theta))))
-
-    # remove path elements that have parameter 0
-    for i in range(len(paths)):
-        paths[i] = list(filter(lambda e: e.param != 0, paths[i]))
-
-    # remove empty paths
-    paths = list(filter(None, paths))
+        for path in (
+            get_path(x, y, theta),
+            timeflip(get_path(-x, y, -theta)),
+            reflect(get_path(x, -y, -theta)),
+            reflect(timeflip(get_path(-x, -y, theta))),
+        ):
+            if not path:
+                continue
+            if any(e.param == 0 for e in path):
+                path = [e for e in path if e.param != 0]
+                if not path:
+                    continue
+            paths.append(path)
 
     return paths
 
@@ -455,3 +537,20 @@ def path12(x, y, phi):
         path.append(PathElement.create(v, Steering.RIGHT, Gear.FORWARD))
 
     return path
+
+
+# Static tuple to avoid re-allocating on every call to get_all_paths.
+PATH_FUNCTIONS = (
+    path1,
+    path2,
+    path3,
+    path4,
+    path5,
+    path6,
+    path7,
+    path8,
+    path9,
+    path10,
+    path11,
+    path12,
+)

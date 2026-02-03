@@ -39,8 +39,11 @@ waypoints = [
 # Initialize the planner
 planner = ReedsSheppCurve()
 
-# Generate paths between consecutive waypoints
+# Generate paths between consecutive waypoints (defaults to 10 shortest paths)
 paths = planner.plan(waypoints)
+
+# Or return all paths
+# paths = planner.plan(waypoints, max_paths=None)
 
 # Iterate through paths
 for i, path in enumerate(paths):
@@ -58,6 +61,38 @@ python examples/visual_demo.py
 ```
 
 ![Reeds-Shepp curves implementation example](demo.gif)
+
+## Benchmark
+
+Run the waypoint scaling benchmark:
+
+```bash
+python examples/benchmark_waypoints.py
+```
+
+Average time per waypoint count (3 trials each, default `max_paths=10`):
+
+| Waypoints | Avg time (s) |
+| --- | --- |
+| 2 | 0.000905 |
+| 3 | 0.001730 |
+| 4 | 0.002656 |
+| 5 | 0.003384 |
+| 6 | 0.004483 |
+| 7 | 0.008106 |
+| 8 | 0.008701 |
+| 9 | 0.008288 |
+| 10 | 0.010580 |
+| 11 | 0.011174 |
+| 12 | 0.010400 |
+| 13 | 0.010786 |
+| 14 | 0.013107 |
+| 15 | 0.013648 |
+| 16 | 0.014205 |
+| 17 | 0.017219 |
+| 18 | 0.018404 |
+| 19 | 0.015654 |
+| 20 | 0.017379 |
 
 ## Testing
 
