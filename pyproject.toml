@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reeds-shepp-curves"
+version = "0.1.0"
+authors = [
+  { name="sezer-muhammed", email="sezer@imsezer.com" },
+]
+description = "Implementation of Reeds-Shepp curves for path planning."
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = []
+
+[project.urls]
+"Homepage" = "https://github.com/sezer-muhammed/reeds-shepp-curves"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["reeds_shepp*"]
